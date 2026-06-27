@@ -4,13 +4,44 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
-import kotlin.math.*
+import net.objecthunter.exp4j.ExpressionBuilder
+import net.objecthunter.exp4j.function.Function
+import java.util.Locale
+
+sealed class CalculatorAction {
+    data class Number(val number: Int) : CalculatorAction()
+    object Clear : CalculatorAction()
+    object Delete : CalculatorAction()
+    object Decimal : CalculatorAction()
+    object Calculate : CalculatorAction()
+    data class Operation(val operation: String) : CalculatorAction()
+    data class Scientific(val function: String) : CalculatorAction()
+    data class Constant(val constant: String) : CalculatorAction()
+    data class Parentheses(val bracket: String) : CalculatorAction()
+    object ToggleScientific : CalculatorAction()
+}
 
 class CalculatorViewModel : ViewModel() {
     var displayState by mutableStateOf("0")
         private set
 
+    var isScientificExpanded by mutableStateOf(false)
+        private set
+
     private var currentInput = ""
+
+    // Custom Factorial Function
+    private val factorial = object : Function("fact", 1) {
+        override fun apply(vararg args: Double): Double {
+            val arg = args[0]
+            if (arg < 0 || arg != Math.floor(arg)) return 0.0
+            var result = 1.0
+            for (i in 1..arg.toInt()) {
+                result *= i
+            }
+            return result
+        }
+    }
 
     fun onAction(action: CalculatorAction) {
         when (action) {
@@ -22,9 +53,13 @@ class CalculatorViewModel : ViewModel() {
             }
             is CalculatorAction.Operation -> enterOperation(action.operation)
             is CalculatorAction.Calculate -> performCalculation()
-            is CalculatorAction.Scientific -> performScientific(action.function)
+            is CalculatorAction.Scientific -> enterScientific(action.function)
             is CalculatorAction.Delete -> delete()
             is CalculatorAction.Constant -> enterConstant(action.constant)
+            is CalculatorAction.Parentheses -> enterParentheses(action.bracket)
+            is CalculatorAction.ToggleScientific -> {
+                isScientificExpanded = !isScientificExpanded
+            }
         }
     }
 
@@ -34,111 +69,119 @@ class CalculatorViewModel : ViewModel() {
         displayState = currentInput
     }
 
-    fun enterConstant(constant: String) {
-        val value = if (constant == "PI") PI else E
+    private fun enterConstant(constant: String) {
         if (currentInput == "0") currentInput = ""
-        currentInput += value.toString()
+        currentInput += when(constant) {
+            "PI" -> "π"
+            "E" -> "e"
+            else -> constant
+        }
         displayState = currentInput
     }
 
     private fun enterDecimal() {
-        if (!currentInput.contains(".")) {
-            if (currentInput.isEmpty()) currentInput = "0"
-            currentInput += "."
+        if (currentInput.isEmpty() || currentInput.endsWith(" ") || currentInput.endsWith("(")) {
+            currentInput += "0."
+        } else {
+            val lastPart = currentInput.split(Regex("[\\+\\-\\*/\\^\\(\\)]")).last()
+            if (!lastPart.contains(".")) {
+                currentInput += "."
+            }
+        }
+        displayState = currentInput
+    }
+
+    private fun enterOperation(operation: String) {
+        if (currentInput.isNotEmpty() || operation == "-") {
+            // Replace symbols for display
+            val op = when(operation) {
+                "*" -> "×"
+                "/" -> "÷"
+                else -> operation
+            }
+            currentInput += op
             displayState = currentInput
         }
     }
 
-    private fun enterOperation(operation: String) {
-        if (currentInput.isNotEmpty()) {
-            currentInput += " $operation "
-            displayState = currentInput
-        }
+    private fun enterParentheses(bracket: String) {
+        if (currentInput == "0") currentInput = ""
+        currentInput += bracket
+        displayState = currentInput
     }
 
     private fun delete() {
         if (currentInput.isNotEmpty()) {
-            currentInput = currentInput.dropLast(1).trim()
-            displayState = currentInput.ifEmpty { "0" }
+            val functions = listOf("sin(", "cos(", "tan(", "log10(", "log(", "sqrt(", "exp(", "fact(", "1/", "10^(")
+            val matchedFunc = functions.find { currentInput.endsWith(it) }
+            
+            if (matchedFunc != null) {
+                currentInput = currentInput.dropLast(matchedFunc.length)
+            } else {
+                currentInput = currentInput.dropLast(1)
+            }
+            displayState = if (currentInput.isEmpty()) "0" else currentInput
         }
     }
 
-    private fun performScientific(function: String) {
-        try {
-            val value = currentInput.toDoubleOrNull() ?: displayState.toDoubleOrNull() ?: 0.0
-            val result = when (function) {
-                "sin" -> sin(Math.toRadians(value))
-                "cos" -> cos(Math.toRadians(value))
-                "tan" -> tan(Math.toRadians(value))
-                "exp" -> exp(value)
-                "log" -> ln(value)
-                "sqrt" -> sqrt(value)
-                else -> 0.0
-            }
-            currentInput = formatResult(result)
-            displayState = currentInput
-        } catch (_: Exception) {
-            displayState = "Error"
+    private fun enterScientific(function: String) {
+        if (currentInput == "0") currentInput = ""
+        currentInput += when (function) {
+            "sin" -> "sin("
+            "cos" -> "cos("
+            "tan" -> "tan("
+            "log" -> "log10("
+            "ln" -> "log("
+            "sqrt" -> "sqrt("
+            "pow2" -> "^2"
+            "pow3" -> "^3"
+            "fact" -> "fact("
+            "inv" -> "1/("
+            "10x" -> "10^("
+            "ex" -> "exp("
+            else -> "$function("
         }
+        displayState = currentInput
     }
 
     private fun performCalculation() {
+        if (currentInput.isEmpty()) return
         try {
-            val result = evaluateExpression(currentInput)
+            var expressionStr = currentInput
+                .replace("π", "pi")
+                .replace("e", "e")
+                .replace("×", "*")
+                .replace("÷", "/")
+                .replace("%", "*0.01")
+
+            // Auto-close missing parentheses
+            val openBrackets = expressionStr.count { it == '(' }
+            val closeBrackets = expressionStr.count { it == ')' }
+            if (openBrackets > closeBrackets) {
+                expressionStr += ")".repeat(openBrackets - closeBrackets)
+            }
+
+            val expression = ExpressionBuilder(expressionStr)
+                .functions(factorial)
+                .build()
+                
+            val result = expression.evaluate()
             currentInput = formatResult(result)
             displayState = currentInput
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             displayState = "Error"
         }
     }
 
     private fun formatResult(result: Double): String {
-        if (result.isInfinite()) return "Error"
-        if (result.isNaN()) return "Error"
+        if (result.isInfinite() || result.isNaN()) return "Error"
         
-        return if (result == result.toLong().toDouble()) {
+        return if (result == result.toLong().toDouble() && result < Long.MAX_VALUE && result > Long.MIN_VALUE) {
             result.toLong().toString()
         } else {
-            // Limits to 10 decimal places and removes trailing zeros
-            "%.10f".format(java.util.Locale.US, result)
+            "%.10f".format(Locale.US, result)
                 .replace(Regex("0*$"), "")
                 .replace(Regex("\\.$"), "")
         }
     }
-
-    // Simple evaluation logic for basic expressions
-    private fun evaluateExpression(expression: String): Double {
-        // This is a placeholder for a more complex parser. 
-        // For now, let's handle simple operations: +, -, *, /
-        val tokens = expression.split(" ").filter { it.isNotEmpty() }
-        if (tokens.isEmpty()) return 0.0
-        
-        var result = tokens[0].toDouble()
-        var i = 1
-        while (i < tokens.size) {
-            val op = tokens[i]
-            val nextVal = tokens[i + 1].toDouble()
-            result = when (op) {
-                "+" -> result + nextVal
-                "-" -> result - nextVal
-                "*" -> result * nextVal
-                "/" -> result / nextVal
-                "^" -> result.pow(nextVal)
-                else -> result
-            }
-            i += 2
-        }
-        return result
-    }
-}
-
-sealed class CalculatorAction {
-    data class Number(val number: Int) : CalculatorAction()
-    object Clear : CalculatorAction()
-    object Delete : CalculatorAction()
-    object Decimal : CalculatorAction()
-    object Calculate : CalculatorAction()
-    data class Operation(val operation: String) : CalculatorAction()
-    data class Scientific(val function: String) : CalculatorAction()
-    data class Constant(val constant: String) : CalculatorAction()
 }

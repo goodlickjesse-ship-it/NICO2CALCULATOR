@@ -1,0 +1,25 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Background of the icon content -->
+    <path
+        android:fillColor="#333333"
+        android:pathData="M30,25 h48 c2.76,0 5,2.24 5,5 v48 c0,2.76 -2.24,5 -5,5 h-48 c-2.76,0 -5,-2.24 -5,-5 v-48 c0,-2.76 2.24,-5 5,-5z" />
+
+    <!-- Calculator Screen -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M35,32 h38 v10 h-38 z" />
+
+    <!-- Buttons -->
+    <path
+        android:fillColor="#FF9800"
+        android:pathData="M35,46 h10 v10 h-10 z M49,46 h10 v10 h-10 z M63,46 h10 v10 h-10 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M35,60 h10 v10 h-10 z M49,60 h10 v10 h-10 z M63,60 h10 v10 h-10 z" />
+
+</vector>
