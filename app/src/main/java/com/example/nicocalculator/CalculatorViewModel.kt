@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import net.objecthunter.exp4j.ExpressionBuilder
 import net.objecthunter.exp4j.function.Function
 import java.util.Locale
+import kotlin.math.*
 
 sealed class CalculatorAction {
     data class Number(val number: Int) : CalculatorAction()
@@ -19,6 +20,7 @@ sealed class CalculatorAction {
     data class Constant(val constant: String) : CalculatorAction()
     data class Parentheses(val bracket: String) : CalculatorAction()
     object ToggleScientific : CalculatorAction()
+    object ToggleDegRad : CalculatorAction()
 }
 
 class CalculatorViewModel : ViewModel() {
@@ -28,17 +30,46 @@ class CalculatorViewModel : ViewModel() {
     var isScientificExpanded by mutableStateOf(false)
         private set
 
+    var isDegreeMode by mutableStateOf(true)
+        private set
+
     private var currentInput = ""
+
+    // Custom Trig Functions to handle Deg/Rad
+    private val sinFunc = object : Function("sin", 1) {
+        override fun apply(vararg args: Double): Double = 
+            if (isDegreeMode) sin(Math.toRadians(args[0])) else sin(args[0])
+    }
+    private val cosFunc = object : Function("cos", 1) {
+        override fun apply(vararg args: Double): Double = 
+            if (isDegreeMode) cos(Math.toRadians(args[0])) else cos(args[0])
+    }
+    private val tanFunc = object : Function("tan", 1) {
+        override fun apply(vararg args: Double): Double = 
+            if (isDegreeMode) tan(Math.toRadians(args[0])) else tan(args[0])
+    }
+    
+    // Custom Inverse Trig
+    private val asinFunc = object : Function("asin", 1) {
+        override fun apply(vararg args: Double): Double = 
+            if (isDegreeMode) Math.toDegrees(asin(args[0])) else asin(args[0])
+    }
+    private val acosFunc = object : Function("acos", 1) {
+        override fun apply(vararg args: Double): Double = 
+            if (isDegreeMode) Math.toDegrees(acos(args[0])) else acos(args[0])
+    }
+    private val atanFunc = object : Function("atan", 1) {
+        override fun apply(vararg args: Double): Double = 
+            if (isDegreeMode) Math.toDegrees(atan(args[0])) else atan(args[0])
+    }
 
     // Custom Factorial Function
     private val factorial = object : Function("fact", 1) {
         override fun apply(vararg args: Double): Double {
             val arg = args[0]
-            if (arg < 0 || arg != Math.floor(arg)) return 0.0
+            if (arg < 0 || arg > 170 || arg != floor(arg)) return Double.NaN
             var result = 1.0
-            for (i in 1..arg.toInt()) {
-                result *= i
-            }
+            for (i in 1..arg.toInt()) result *= i
             return result
         }
     }
@@ -57,9 +88,8 @@ class CalculatorViewModel : ViewModel() {
             is CalculatorAction.Delete -> delete()
             is CalculatorAction.Constant -> enterConstant(action.constant)
             is CalculatorAction.Parentheses -> enterParentheses(action.bracket)
-            is CalculatorAction.ToggleScientific -> {
-                isScientificExpanded = !isScientificExpanded
-            }
+            is CalculatorAction.ToggleScientific -> isScientificExpanded = !isScientificExpanded
+            is CalculatorAction.ToggleDegRad -> isDegreeMode = !isDegreeMode
         }
     }
 
@@ -84,16 +114,13 @@ class CalculatorViewModel : ViewModel() {
             currentInput += "0."
         } else {
             val lastPart = currentInput.split(Regex("[\\+\\-\\*/\\^\\(\\)]")).last()
-            if (!lastPart.contains(".")) {
-                currentInput += "."
-            }
+            if (!lastPart.contains(".")) currentInput += "."
         }
         displayState = currentInput
     }
 
     private fun enterOperation(operation: String) {
         if (currentInput.isNotEmpty() || operation == "-") {
-            // Replace symbols for display
             val op = when(operation) {
                 "*" -> "×"
                 "/" -> "÷"
@@ -112,7 +139,7 @@ class CalculatorViewModel : ViewModel() {
 
     private fun delete() {
         if (currentInput.isNotEmpty()) {
-            val functions = listOf("sin(", "cos(", "tan(", "log10(", "log(", "sqrt(", "exp(", "fact(", "1/", "10^(")
+            val functions = listOf("asin(", "acos(", "atan(", "sin(", "cos(", "tan(", "log10(", "log(", "sqrt(", "exp(", "fact(", "1/", "10^(")
             val matchedFunc = functions.find { currentInput.endsWith(it) }
             
             if (matchedFunc != null) {
@@ -130,6 +157,9 @@ class CalculatorViewModel : ViewModel() {
             "sin" -> "sin("
             "cos" -> "cos("
             "tan" -> "tan("
+            "asin" -> "asin("
+            "acos" -> "acos("
+            "atan" -> "atan("
             "log" -> "log10("
             "ln" -> "log("
             "sqrt" -> "sqrt("
@@ -154,15 +184,12 @@ class CalculatorViewModel : ViewModel() {
                 .replace("÷", "/")
                 .replace("%", "*0.01")
 
-            // Auto-close missing parentheses
             val openBrackets = expressionStr.count { it == '(' }
             val closeBrackets = expressionStr.count { it == ')' }
-            if (openBrackets > closeBrackets) {
-                expressionStr += ")".repeat(openBrackets - closeBrackets)
-            }
+            if (openBrackets > closeBrackets) expressionStr += ")".repeat(openBrackets - closeBrackets)
 
             val expression = ExpressionBuilder(expressionStr)
-                .functions(factorial)
+                .functions(sinFunc, cosFunc, tanFunc, asinFunc, acosFunc, atanFunc, factorial)
                 .build()
                 
             val result = expression.evaluate()
@@ -176,10 +203,13 @@ class CalculatorViewModel : ViewModel() {
     private fun formatResult(result: Double): String {
         if (result.isInfinite() || result.isNaN()) return "Error"
         
-        return if (result == result.toLong().toDouble() && result < Long.MAX_VALUE && result > Long.MIN_VALUE) {
-            result.toLong().toString()
+        // Handle floating point precision errors for trig functions (e.g. sin(180) should be 0)
+        val roundedResult = if (abs(result) < 1e-10) 0.0 else result
+
+        return if (roundedResult == roundedResult.toLong().toDouble() && roundedResult < Long.MAX_VALUE && roundedResult > Long.MIN_VALUE) {
+            roundedResult.toLong().toString()
         } else {
-            "%.10f".format(Locale.US, result)
+            "%.10f".format(Locale.US, roundedResult)
                 .replace(Regex("0*$"), "")
                 .replace(Regex("\\.$"), "")
         }
