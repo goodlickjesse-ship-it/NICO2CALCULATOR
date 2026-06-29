@@ -1,15 +1,26 @@
+# Built artifacts
+bin/
+gen/
+out/
+build/
+
+# IDE specific files
+.gradle/
+.idea/
 *.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+
+# Local configuration
 local.properties
+
+# Captures and logs
+captures/
+*.log
+
+# Kotlin
+.kotlin/
