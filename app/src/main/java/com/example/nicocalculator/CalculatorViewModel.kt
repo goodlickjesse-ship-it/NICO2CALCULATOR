@@ -21,6 +21,12 @@ sealed class CalculatorAction {
     data class Parentheses(val bracket: String) : CalculatorAction()
     object ToggleScientific : CalculatorAction()
     object ToggleDegRad : CalculatorAction()
+    
+    // Matrix Actions
+    data class MatrixInput(val row: Int, val col: Int, val value: String) : CalculatorAction()
+    object CalculateMatrixInverse : CalculatorAction()
+    object CalculateMatrixDet : CalculatorAction()
+    data class SetMatrixSize(val size: Int) : CalculatorAction()
 }
 
 class CalculatorViewModel : ViewModel() {
@@ -33,9 +39,17 @@ class CalculatorViewModel : ViewModel() {
     var isDegreeMode by mutableStateOf(true)
         private set
 
+    // Matrix State
+    var matrixSize by mutableStateOf(2)
+        private set
+    var matrixData = mutableStateOf(Array(4) { Array(4) { "" } })
+        private set
+    var matrixResult by mutableStateOf("")
+        private set
+
     private var currentInput = ""
 
-    // Custom Trig Functions to handle Deg/Rad
+    // Custom Trig Functions
     private val sinFunc = object : Function("sin", 1) {
         override fun apply(vararg args: Double): Double = 
             if (isDegreeMode) sin(Math.toRadians(args[0])) else sin(args[0])
@@ -49,21 +63,17 @@ class CalculatorViewModel : ViewModel() {
             if (isDegreeMode) tan(Math.toRadians(args[0])) else tan(args[0])
     }
     
-    // Custom Inverse Trig
-    private val asinFunc = object : Function("asin", 1) {
-        override fun apply(vararg args: Double): Double = 
-            if (isDegreeMode) Math.toDegrees(asin(args[0])) else asin(args[0])
+    // Hyperbolic Functions
+    private val sinhFunc = object : Function("sinh", 1) {
+        override fun apply(vararg args: Double): Double = sinh(args[0])
     }
-    private val acosFunc = object : Function("acos", 1) {
-        override fun apply(vararg args: Double): Double = 
-            if (isDegreeMode) Math.toDegrees(acos(args[0])) else acos(args[0])
+    private val coshFunc = object : Function("cosh", 1) {
+        override fun apply(vararg args: Double): Double = cosh(args[0])
     }
-    private val atanFunc = object : Function("atan", 1) {
-        override fun apply(vararg args: Double): Double = 
-            if (isDegreeMode) Math.toDegrees(atan(args[0])) else atan(args[0])
+    private val tanhFunc = object : Function("tanh", 1) {
+        override fun apply(vararg args: Double): Double = tanh(args[0])
     }
 
-    // Custom Factorial Function
     private val factorial = object : Function("fact", 1) {
         override fun apply(vararg args: Double): Double {
             val arg = args[0]
@@ -81,6 +91,7 @@ class CalculatorViewModel : ViewModel() {
             is CalculatorAction.Clear -> {
                 currentInput = ""
                 displayState = "0"
+                matrixResult = ""
             }
             is CalculatorAction.Operation -> enterOperation(action.operation)
             is CalculatorAction.Calculate -> performCalculation()
@@ -90,6 +101,16 @@ class CalculatorViewModel : ViewModel() {
             is CalculatorAction.Parentheses -> enterParentheses(action.bracket)
             is CalculatorAction.ToggleScientific -> isScientificExpanded = !isScientificExpanded
             is CalculatorAction.ToggleDegRad -> isDegreeMode = !isDegreeMode
+            
+            // Matrix Handlers
+            is CalculatorAction.SetMatrixSize -> matrixSize = action.size
+            is CalculatorAction.MatrixInput -> {
+                val newData = matrixData.value.map { it.copyOf() }.toTypedArray()
+                newData[action.row][action.col] = action.value
+                matrixData.value = newData
+            }
+            is CalculatorAction.CalculateMatrixDet -> calculateDeterminant()
+            is CalculatorAction.CalculateMatrixInverse -> matrixResult = "Inverse not implemented yet"
         }
     }
 
@@ -139,7 +160,7 @@ class CalculatorViewModel : ViewModel() {
 
     private fun delete() {
         if (currentInput.isNotEmpty()) {
-            val functions = listOf("asin(", "acos(", "atan(", "sin(", "cos(", "tan(", "log10(", "log(", "sqrt(", "exp(", "fact(", "1/", "10^(")
+            val functions = listOf("sinh(", "cosh(", "tanh(", "sin(", "cos(", "tan(", "log10(", "log(", "sqrt(", "exp(", "fact(", "1/", "10^(")
             val matchedFunc = functions.find { currentInput.endsWith(it) }
             
             if (matchedFunc != null) {
@@ -154,21 +175,12 @@ class CalculatorViewModel : ViewModel() {
     private fun enterScientific(function: String) {
         if (currentInput == "0") currentInput = ""
         currentInput += when (function) {
-            "sin" -> "sin("
-            "cos" -> "cos("
-            "tan" -> "tan("
-            "asin" -> "asin("
-            "acos" -> "acos("
-            "atan" -> "atan("
-            "log" -> "log10("
-            "ln" -> "log("
-            "sqrt" -> "sqrt("
+            "sin", "cos", "tan", "sinh", "cosh", "tanh", "sqrt", "log", "ln", "exp", "fact" -> {
+                if (function == "log") "log10(" else if (function == "ln") "log(" else "$function("
+            }
             "pow2" -> "^2"
-            "pow3" -> "^3"
-            "fact" -> "fact("
             "inv" -> "1/("
             "10x" -> "10^("
-            "ex" -> "exp("
             else -> "$function("
         }
         displayState = currentInput
@@ -189,7 +201,7 @@ class CalculatorViewModel : ViewModel() {
             if (openBrackets > closeBrackets) expressionStr += ")".repeat(openBrackets - closeBrackets)
 
             val expression = ExpressionBuilder(expressionStr)
-                .functions(sinFunc, cosFunc, tanFunc, asinFunc, acosFunc, atanFunc, factorial)
+                .functions(sinFunc, cosFunc, tanFunc, sinhFunc, coshFunc, tanhFunc, factorial)
                 .build()
                 
             val result = expression.evaluate()
@@ -202,16 +214,30 @@ class CalculatorViewModel : ViewModel() {
 
     private fun formatResult(result: Double): String {
         if (result.isInfinite() || result.isNaN()) return "Error"
-        
-        // Handle floating point precision errors for trig functions (e.g. sin(180) should be 0)
         val roundedResult = if (abs(result) < 1e-10) 0.0 else result
-
-        return if (roundedResult == roundedResult.toLong().toDouble() && roundedResult < Long.MAX_VALUE && roundedResult > Long.MIN_VALUE) {
+        return if (roundedResult == roundedResult.toLong().toDouble()) {
             roundedResult.toLong().toString()
         } else {
-            "%.10f".format(Locale.US, roundedResult)
-                .replace(Regex("0*$"), "")
-                .replace(Regex("\\.$"), "")
+            "%.10f".format(Locale.US, roundedResult).replace(Regex("0*$"), "").replace(Regex("\\.$"), "")
+        }
+    }
+
+    // Basic 2x2 Determinant as starting point
+    private fun calculateDeterminant() {
+        try {
+            val data = matrixData.value
+            val det = if (matrixSize == 2) {
+                val a = data[0][0].toDoubleOrNull() ?: 0.0
+                val b = data[0][1].toDoubleOrNull() ?: 0.0
+                val c = data[1][0].toDoubleOrNull() ?: 0.0
+                val d = data[1][1].toDoubleOrNull() ?: 0.0
+                (a * d) - (b * c)
+            } else {
+                0.0 // Placeholder for higher order
+            }
+            matrixResult = "Det: ${formatResult(det)}"
+        } catch (e: Exception) {
+            matrixResult = "Error"
         }
     }
 }
